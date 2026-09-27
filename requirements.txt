@@ -1,0 +1,6 @@
+# Core framework has zero hard dependencies beyond the Python standard library.
+# The following are optional, needed only for specific features:
+
+pyyaml>=6.0          # YAML config file support (eval_framework.core.config)
+anthropic>=0.34.0    # Optional: LLM-as-judge scoring (eval_framework.llm.judge)
+pytest>=7.4.0        # Running the test suite

@@ -1,0 +1,36 @@
+{
+  "task_type": "llm",
+  "model_name": "mock-llm-v1",
+  "dataset_name": "llm_sample",
+  "metrics": {
+    "num_cases": 5,
+    "latency_ms_mean": 109.481,
+    "latency_ms_p95": 136.268,
+    "latency_ms_p99": 138.761,
+    "token_usage": {
+      "input_tokens": 142,
+      "output_tokens": 75,
+      "total_tokens": 217,
+      "estimated_cost_usd": 0.001551
+    },
+    "tokens_estimated": false,
+    "accuracy_exact_match": 0.0,
+    "accuracy_token_f1": 0.0,
+    "relevance": 0.4,
+    "groundedness": 0.0941,
+    "hallucination_rate": 1.0
+  },
+  "not_applicable": {},
+  "config": {
+    "hallucination_threshold": 0.5,
+    "seed": 42,
+    "test_cases_file": "data/llm_sample/test_cases.json"
+  },
+  "environment": {
+    "python_version": "3.12.3",
+    "platform": "Linux-6.18.44-fc-v42-x86_64-with-glibc2.39",
+    "git_commit": null
+  },
+  "timestamp": "2026-09-27T08:31:38.360951+00:00",
+  "notes": ""
+}

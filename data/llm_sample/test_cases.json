@@ -1,0 +1,27 @@
+[
+  {
+    "query": "What is the capital of France?",
+    "context": "France is a country in Western Europe. Its capital city is Paris, which is also its largest city.",
+    "reference": "Paris"
+  },
+  {
+    "query": "How many legs does a spider have?",
+    "context": "Spiders are arachnids. Unlike insects, which have six legs, spiders have eight legs.",
+    "reference": "8"
+  },
+  {
+    "query": "What year did the first man land on the moon?",
+    "context": "The Apollo 11 mission in 1969 was the first crewed mission to land humans on the Moon.",
+    "reference": "1969"
+  },
+  {
+    "query": "What is the boiling point of water at sea level in Celsius?",
+    "context": "Water boils at 100 degrees Celsius (212 degrees Fahrenheit) at standard atmospheric pressure (sea level).",
+    "reference": "100"
+  },
+  {
+    "query": "Who wrote the play Romeo and Juliet?",
+    "context": "Romeo and Juliet is a tragedy written by William Shakespeare early in his career.",
+    "reference": "William Shakespeare"
+  }
+]
