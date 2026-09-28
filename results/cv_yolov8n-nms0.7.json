@@ -2,7 +2,7 @@
   "kind": "cv",
   "name": "yolov8n-nms0.7",
   "dataset": "data/coco128/images/train2017",
-  "time_utc": "2026-09-28T05:00:13+00:00",
+  "time_utc": "2026-09-28T05:50:27+00:00",
   "config": {
     "name": "yolov8n-nms0.7",
     "model": "models/weights/yolov8n.onnx",
@@ -16,10 +16,10 @@
     "limit": null
   },
   "env": {
-    "python": "3.12.3",
-    "os": "Linux-6.18.44-fc-v42-x86_64-with-glibc2.39",
-    "cpu_count": 1,
-    "git_commit": null
+    "python": "3.11.7",
+    "os": "Windows-10-10.0.26200-SP0",
+    "cpu_count": 4,
+    "git_commit": "234f01d"
   },
   "metrics": {
     "precision": 0.7134,
@@ -34,11 +34,11 @@
     "n_gt_boxes": 929,
     "latency": {
       "n": 128,
-      "mean_ms": 100.71,
-      "p50_ms": 97.24,
-      "p95_ms": 116.77,
-      "max_ms": 124.59,
-      "fps": 9.93
+      "mean_ms": 76.78,
+      "p50_ms": 72.86,
+      "p95_ms": 104.27,
+      "max_ms": 123.03,
+      "fps": 13.02
     },
     "per_class_ap50": {
       "0": 0.7672,

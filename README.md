@@ -45,13 +45,13 @@ YOLOv8n on COCO128 (128 images, 929 boxes), conf 0.25, IoU 0.5 for P/R/F1:
 
 | run | precision | recall | F1 | mAP50 | mAP50-95 | latency (mean) | FPS |
 |---|---|---|---|---|---|---|---|
-| yolov8n-nms0.7 | 0.713 | 0.498 | 0.587 | 0.594 | 0.443 | 100.7 ms | 9.9 |
-| yolov8n-nms0.5 | 0.757 | 0.494 | 0.598 | 0.604 | 0.441 | 101.7 ms | 9.8 |
+| yolov8n-nms0.7 | 0.713 | 0.498 | 0.587 | 0.594 | 0.443 | 76.8 ms | 13.0 |
+| yolov8n-nms0.5 | 0.757 | 0.494 | 0.598 | 0.604 | 0.441 | 79.1 ms | 12.7 |
 
 Raw files are in `results/`. Please read these before quoting the numbers:
 
 - COCO128 is taken from COCO train2017, which YOLOv8 was trained on, so accuracy here is optimistic. It shows the pipeline works, not how the model generalises. Use a held-out set for real decisions.
-- Latency/FPS were measured on a 1-core CPU sandbox. They cover preprocessing, inference and NMS, but not image decoding. Re-run on your own hardware; latency changes from run to run (100.7 vs 104.0 ms in two identical runs), accuracy metrics don't.
+- Latency/FPS were measured on an Intel Core i3-1115G4 (2 cores), 8 GB RAM, Windows, CPU only (onnxruntime). They cover preprocessing, inference and NMS, but not image decoding. Latency varies slightly from run to run and between machines; the accuracy metrics do not. Latency/FPS were measured on a 1-core CPU sandbox. They cover preprocessing, inference and NMS, but not image decoding. Re-run on your own hardware; latency changes from run to run (100.7 vs 104.0 ms in two identical runs), accuracy metrics don't.
 - The LLM side is covered by unit tests with fake models only. No real LLM run is included yet because it needs an API key.
 
 More detail on the formulas and choices is in `docs/methodology.md`.
