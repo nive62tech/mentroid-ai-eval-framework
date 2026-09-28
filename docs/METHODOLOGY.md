@@ -1,162 +1,53 @@
-# Evaluation Methodology
+# Methodology
 
-## 1. Overview
+## What was evaluated
 
-This framework separates concerns into three layers so it stays modular
-and reusable across future models:
+- **CV:** YOLOv8n (COCO-pretrained, ONNX export, 640x640 input) run with onnxruntime on CPU, on COCO128.
+- **LLM:** the runner and metrics are implemented and unit tested; a real model run needs an API key (see README).
 
-1. **Metrics** (`eval_framework/cv/detection_metrics.py`,
-   `eval_framework/llm/llm_metrics.py`) — pure functions, no I/O, no timing.
-2. **Runners** (`eval_framework/cv/runner.py`, `eval_framework/llm/runner.py`)
-   — wrap a user-supplied model function, add timing/FPS, and assemble a
-   uniform `EvalResult`.
-3. **Core** (`eval_framework/core/`) — timing utilities, result
-   persistence/versioning, and config loading, shared by both CV and LLM.
+## Test setup (CV)
 
-Because the runners only depend on a plain Python function
-(`predict_fn` / `generate_fn`) with a fixed input/output shape, swapping
-in a different or newer model version requires no changes to the
-metrics or storage code — only a new function pointed at the new model.
+1. All images are decoded once before timing starts.
+2. 5 warm-up inferences are run and not timed.
+3. Each image is timed on its own: letterbox resize, model run, decoding of the output, NMS.
+4. The detector keeps everything with score >= 0.001, so the precision/recall curve is complete for mAP.
+5. Predictions and labels are compared with `evalkit/cv_metrics.py`.
 
-## 2. Computer Vision metrics
+## CV metrics
 
-| Metric | Definition | Notes |
-|---|---|---|
-| Precision | TP / (TP + FP) | Computed globally across all images/classes at the given IoU threshold |
-| Recall | TP / (TP + FN) | Same matching as above |
-| F1 Score | 2·P·R / (P + R) | Harmonic mean of the above |
-| mAP | Mean of per-class Average Precision | 11-point interpolated AP (PASCAL VOC style), averaged over all classes present in ground truth |
-| FPS | 1000 / mean_latency_ms | Derived from the same timed inference calls used for latency |
-| Inference latency | Wall-clock time per `predict_fn` call | Mean, p50 (median), p95, p99, min, max reported; first `warmup_runs` calls excluded from timing to avoid cold-start skew |
+- **Matching:** for each image and class, predictions are taken in descending score order. Each is matched to the unclaimed ground-truth box with the highest IoU, if that IoU passes the threshold. Otherwise it is a false positive. Unmatched ground-truth boxes are false negatives.
+- **Precision / recall / F1:** computed over all classes together, using only predictions with score >= `--conf` (default 0.25) at IoU >= `--iou` (default 0.5).
+- **AP:** area under the precision-recall curve, all-point interpolation. Built from all predictions of a class across the dataset.
+- **mAP50:** mean AP over classes present in the labels, IoU 0.5. **mAP50-95:** the same, averaged over IoU 0.50 to 0.95 in steps of 0.05.
+- **Latency:** per-image wall-clock time in ms; mean, median, p95 and max are reported. **FPS** = 1000 / mean latency (single image at a time, no batching).
 
-**Matching**: for each image and class, predictions are sorted by
-confidence descending and greedily matched to the highest-IoU unmatched
-ground-truth box; a match counts as a true positive if IoU ≥
-`iou_threshold` (default 0.5, configurable).
+Sanity check: the published COCO val mAP50-95 for YOLOv8n is 37.3. We get 44.3 on COCO128, which is higher, as expected since COCO128 comes from the training split. The metric functions are also checked against hand-computed cases in `tests/test_cv_metrics.py`.
 
-**Reference implementation**: the detection metrics are implemented from
-first principles (no external CV library required), so the framework
-runs anywhere Python runs. For large-scale production benchmarking
-against COCO-format datasets, the same public functions
-(`precision_recall_f1`, `mean_average_precision`) can be replaced with
-calls to `pycocotools` without touching the runner or CLI scripts.
+## LLM metrics
 
-## 3. LLM / AI system metrics
+All are simple word-overlap heuristics, chosen because they are deterministic, free and need no second model.
 
-| Metric | Definition | Notes |
-|---|---|---|
-| Accuracy | Exact match (normalized) and/or token-overlap F1 against a reference answer | Marked "not applicable" if no `reference` is supplied in any test case |
-| Relevance | Fraction of the query's meaningful tokens reflected in the response | Lexical-overlap proxy; see "Upgrading metrics" below |
-| Groundedness | Fraction of the response's tokens also present in the supplied context | Marked "not applicable" if no `context` is supplied |
-| Hallucination rate | Fraction of responses whose groundedness falls below `hallucination_threshold` (default 0.5) | Inverse-of-groundedness at the response level |
-| Latency | Wall-clock time per `generate_fn` call | Mean, p95, p99 reported |
-| Token usage / cost | Input/output token counts and estimated USD cost | Uses real token counts if `generate_fn` returns them; otherwise a word-count based estimate, and the result is flagged `tokens_estimated: true` |
+| metric | how it is computed |
+|---|---|
+| accuracy | exact match, "answer contains every word of the reference", and token F1, each against `reference` |
+| relevance | share of the question's content words (stop words removed) that appear in the answer |
+| groundedness | share of the answer's content words that appear in the context |
+| hallucination rate | share of answers with groundedness below `--halluc-thr` (default 0.6) |
+| latency | wall-clock time per call, same stats as CV |
+| tokens / cost | token counts from the API response; cost = tokens x price per 1M tokens supplied by the user |
 
-**Handling "not applicable" metrics**: rather than silently defaulting
-missing-input metrics to 0 or 1 (which would be misleading), the
-framework records them in a separate `not_applicable` dict with a plain
-reason, e.g. `"No context provided in test cases."`. This keeps results
-honest and auditable.
+Limits: a correct answer that is a paraphrase can score low on groundedness and relevance, and a wrong answer that reuses context words can score high. Treat these as a cheap first signal. For a stronger check, add a judge-model scorer that returns the same per-case fields and compare it with these on a few dozen hand-checked answers. The raw answers are saved next to each LLM result for exactly that kind of review.
 
-### Upgrading metrics (LLM-as-judge)
+## Metrics that don't apply
 
-The default Accuracy/Relevance/Groundedness implementations are
-deterministic lexical-overlap proxies — chosen so the framework runs
-with zero setup (no API key, no embedding model). For higher-fidelity
-scoring, `eval_framework/llm/judge.py` provides an `LLMJudge` template
-that scores the same three dimensions using an actual model call. Swap
-it in by scoring with `LLMJudge().score(...)` instead of the lexical
-functions inside a custom runner — the output shape (floats in [0, 1])
-is unchanged, so `EvalResult` and comparison/storage code need no edits.
+If the inputs for a metric are missing, the metric is left out of `metrics` and listed in `not_applicable` with a reason: no references, no context, no token counts from the model wrapper, no prices. Nothing is silently set to 0.
 
-## 4. Reproducibility
+## Reproducing a run
 
-Every run captures, inside the saved `EvalResult`:
-- `config` — the exact settings used (IoU threshold, seed, dataset path, hallucination threshold, etc.)
-- `environment` — Python version, platform, and git commit (if run inside a git repo)
-- `timestamp` — UTC ISO-8601
+Each result json stores the config (all CLI arguments), OS, Python version, CPU count and git commit. To repeat a run: check out that commit, run `python data/download.py`, and pass the same arguments. Accuracy metrics come out identical on repeated runs (checked). Latency does not, and it depends on hardware, so compare latency only between runs on the same machine.
 
-To reproduce a specific past result:
-1. Open its JSON file under `results/`.
-2. Re-run the corresponding script with the same `config` values and the same dataset file.
-3. For the bundled mock models, pass the same `--seed` to get identical synthetic behavior.
+The ONNX file comes from a third-party GitHub repo (URL in `data/download.py`). To use the official weights instead: `pip install ultralytics`, `yolo export model=yolov8n.pt format=onnx`, and put the file at `models/weights/yolov8n.onnx`.
 
-For a **real** model, reproducibility additionally depends on: pinning
-the exact model version/checkpoint, using the same dataset file
-(consider hashing it), and running on comparable hardware for
-latency/FPS comparisons (latency numbers are not portable across
-different machines).
+## Comparing versions
 
-## 5. Comparing model versions
-
-`scripts/compare_models.py` reads `results/history.jsonl` (append-only
-log of every run) and pulls the latest run per requested model name,
-tabulating shared metrics side by side. This is how "compare different
-model versions/configurations" (a required deliverable) is satisfied —
-just give each version/config run a distinct `--model-name`, e.g.
-`yolov8n-v1`, `yolov8n-v2`, `yolov8n-v2-int8`.
-
-## 6. Setup & dependencies
-
-```bash
-pip install -r requirements.txt --break-system-packages
-```
-
-- Core metrics/runners: **standard library only**.
-- `pyyaml`: optional, for YAML config files (`eval_framework/core/config.py`).
-- `anthropic`: optional, only needed for `eval_framework/llm/judge.py` (LLM-as-judge).
-- `pytest`: for running `tests/`.
-
-## 7. Running the benchmark again (step-by-step)
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt --break-system-packages
-
-# 2. Run the CV benchmark on the bundled sample data
-python scripts/run_cv_eval.py \
-  --ground-truth data/cv_sample/ground_truth.json \
-  --model-name mock-detector-v1 --dataset-name cv_sample --seed 42
-
-# 3. Run the LLM benchmark on the bundled sample data
-python scripts/run_llm_eval.py \
-  --test-cases data/llm_sample/test_cases.json \
-  --model-name mock-llm-v1 --dataset-name llm_sample --seed 42
-
-# 4. Inspect results
-cat results/history.jsonl
-
-# 5. Compare two runs/model versions
-python scripts/compare_models.py --models mock-detector-v1 mock-detector-v2
-
-# 6. Run the test suite
-python -m pytest tests/ -v
-```
-
-## 8. Sample results (from the bundled synthetic dataset)
-
-These were produced by an actual run of the pipeline against the bundled
-sample data/mock model (see `results/` for the raw JSON) — not hardcoded:
-
-**CV (`mock-detector-v1` on `cv_sample`, seed 42):**
-```
-Precision: 87.5%
-Recall: 77.78%
-F1 Score: 82.35%
-mAP: 77.28%
-FPS: 44.05
-Latency (mean): 22.7 ms
-```
-
-**LLM (`mock-llm-v1` on `llm_sample`, seed 42):**
-```
-Relevance: 0.40
-Groundedness: 0.094
-Hallucination rate: 1.0
-Latency (mean): 109.5 ms
-Token usage: 217 tokens (~$0.0016)
-```
-(Low LLM scores are expected — the mock generator returns a generic
-templated sentence rather than a real grounded answer; the point is
-demonstrating the pipeline runs and derives every number from the
-evaluation, not that this particular mock model is good.)
+Give each run a distinct `--name` and run `python compare.py <run1.json> <run2.json>`. Example in the README: NMS IoU 0.7 vs 0.5 (lower NMS threshold removes more duplicate boxes, so precision goes up, 0.713 to 0.757, with little change in recall).

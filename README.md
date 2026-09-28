@@ -1,121 +1,67 @@
-# AI Model Evaluation & Benchmarking Framework
+# Model evaluation framework
 
-**Task 09 — VISIONSTRA / Mentroid**
+Small toolkit to benchmark AI models with numbers instead of impressions. It covers two cases:
 
-A reusable, modular framework for evaluating and benchmarking AI/ML
-models — both Computer Vision (detection) models and LLM / AI system
-outputs — using measurable, reproducible metrics instead of qualitative
-observation.
+- **Object detection (CV):** precision, recall, F1, mAP@0.5, mAP@0.5:0.95, latency, FPS
+- **LLM answers:** accuracy, relevance, groundedness, hallucination rate, latency, token usage and cost
 
-## What it does
-
-- **CV metrics**: Precision, Recall, F1 Score, mAP, FPS, Inference latency
-- **LLM metrics**: Accuracy, Relevance, Groundedness, Hallucination rate, Latency, Token usage / cost
-- Computes results from **actual evaluation runs** against a dataset — nothing is hardcoded
-- Saves every run's results to disk (JSON) and appends to a history log for comparing model versions
-- Gracefully marks a metric as "not applicable" (with a reason) instead of guessing, e.g. when no reference answers or context are supplied
-- Ships with tiny synthetic sample datasets + mock models so the whole pipeline can be run and verified with zero external setup
-
-## Project layout
-
-```
-eval-framework/
-├── eval_framework/          # the library
-│   ├── core/                 # timing, result storage/comparison, config loading
-│   ├── cv/                   # detection metrics + CV benchmark runner
-│   └── llm/                  # LLM metrics + LLM benchmark runner + optional LLM-judge
-├── scripts/                  # CLI entry points
-│   ├── run_cv_eval.py
-│   ├── run_llm_eval.py
-│   └── compare_models.py
-├── data/
-│   ├── cv_sample/             # synthetic CV ground truth + dataset requirements doc
-│   └── llm_sample/            # synthetic LLM test cases + dataset requirements doc
-├── configs/                   # example YAML configs for CV / LLM runs
-├── tests/                      # pytest unit tests (24 tests)
-├── results/                    # evaluation outputs land here (gitignored contents, dir kept)
-└── docs/METHODOLOGY.md         # evaluation methodology + reproduction instructions
-```
+Every number is computed from a dataset at run time. Each run is saved as a json file, so model versions or settings can be compared later.
 
 ## Setup
 
-```bash
-pip install -r requirements.txt --break-system-packages
+```
+python -m venv .venv
+.venv\Scripts\activate          # Linux/Mac: source .venv/bin/activate
+pip install -r requirements.txt
+python -m pytest                # 21 tests, should all pass
 ```
 
-The core framework has **zero required dependencies** beyond the Python
-standard library. `pyyaml` and `anthropic` are only needed for optional
-features (YAML configs, LLM-as-judge scoring).
+## Run the CV benchmark
 
-## Quick start
-
-### Run a CV benchmark
-```bash
-python scripts/run_cv_eval.py \
-  --ground-truth data/cv_sample/ground_truth.json \
-  --model-name mock-detector-v1 \
-  --dataset-name cv_sample
+```
+python data/download.py         # YOLOv8n (ONNX) + COCO128, about 20 MB
+python run_cv.py --name yolov8n-nms0.7
+python run_cv.py --name yolov8n-nms0.5 --nms-iou 0.5
+python compare.py results/cv_yolov8n-nms0.7.json results/cv_yolov8n-nms0.5.json
 ```
 
-### Run an LLM benchmark
-```bash
-python scripts/run_llm_eval.py \
-  --test-cases data/llm_sample/test_cases.json \
-  --model-name mock-llm-v1 \
-  --dataset-name llm_sample
+Use your own data: point `--images` and `--labels` at a folder of images and a folder of YOLO-format `.txt` labels (`class cx cy w h`, normalised). Use your own model: replace `models/yolo_onnx.py` with any callable that takes a BGR image and returns `{"boxes": xyxy, "scores": ..., "cls": ...}`.
+
+## Run the LLM benchmark
+
+```
+pip install anthropic
+set ANTHROPIC_API_KEY=...       # Linux/Mac: export
+python run_llm.py --name sonnet-run1 --model claude-sonnet-5 --price-in 3 --price-out 15
 ```
 
-### Compare model versions
-```bash
-python scripts/compare_models.py --models mock-detector-v1 mock-detector-v2
+Test cases live in `data/llm/cases.json` (`question`, optional `context`, optional `reference`). If a metric can't be computed, for example groundedness without a context, it is listed under `not_applicable` in the result instead of being reported as 0. Prices are per 1M tokens and must be passed in; without them cost is shown as not applicable.
+
+To test another LLM, write a function `generate(question, context) -> {"text", "input_tokens", "output_tokens"}` like the one in `models/claude_api.py`.
+
+## Sample results
+
+YOLOv8n on COCO128 (128 images, 929 boxes), conf 0.25, IoU 0.5 for P/R/F1:
+
+| run | precision | recall | F1 | mAP50 | mAP50-95 | latency (mean) | FPS |
+|---|---|---|---|---|---|---|---|
+| yolov8n-nms0.7 | 0.713 | 0.498 | 0.587 | 0.594 | 0.443 | 100.7 ms | 9.9 |
+| yolov8n-nms0.5 | 0.757 | 0.494 | 0.598 | 0.604 | 0.441 | 101.7 ms | 9.8 |
+
+Raw files are in `results/`. Please read these before quoting the numbers:
+
+- COCO128 is taken from COCO train2017, which YOLOv8 was trained on, so accuracy here is optimistic. It shows the pipeline works, not how the model generalises. Use a held-out set for real decisions.
+- Latency/FPS were measured on a 1-core CPU sandbox. They cover preprocessing, inference and NMS, but not image decoding. Re-run on your own hardware; latency changes from run to run (100.7 vs 104.0 ms in two identical runs), accuracy metrics don't.
+- The LLM side is covered by unit tests with fake models only. No real LLM run is included yet because it needs an API key.
+
+More detail on the formulas and choices is in `docs/methodology.md`.
+
+## Layout
+
 ```
-
-### Run tests
-```bash
-python -m pytest tests/ -v
+evalkit/     metrics, timing, llm loop, result storage
+models/      YOLO ONNX wrapper, Anthropic wrapper
+data/        download script, LLM test cases
+run_cv.py  run_llm.py  compare.py
+tests/  results/  docs/
 ```
-
-## Plugging in a real model
-
-The bundled scripts use small **mock models** purely so the pipeline runs
-out of the box with no API keys or GPU. To evaluate a real model, you
-only need to supply a function — the framework handles metrics, timing,
-FPS, saving, and comparison around it.
-
-**CV:**
-```python
-from eval_framework.cv.runner import run_cv_benchmark
-
-def predict_fn(image):
-    # call your real model here
-    return [{"class": "car", "bbox": [x1, y1, x2, y2], "score": 0.91}, ...]
-
-result = run_cv_benchmark(
-    predict_fn=predict_fn,
-    images=your_images_dict,
-    ground_truth=your_ground_truth_dict,
-    model_name="yolov8n-v3",
-    dataset_name="traffic_cam_v2",
-)
-```
-
-**LLM:**
-```python
-from eval_framework.llm.runner import run_llm_benchmark
-
-def generate_fn(prompt):
-    response = your_model.generate(prompt)
-    return {"text": response.text, "input_tokens": response.usage.input, "output_tokens": response.usage.output}
-
-result = run_llm_benchmark(
-    generate_fn=generate_fn,
-    test_cases=your_test_cases,   # [{"query", "context", "reference"}, ...]
-    model_name="claude-sonnet-4-6",
-    dataset_name="support_qa_v1",
-)
-```
-
-See `docs/METHODOLOGY.md` for full details on each metric, dataset
-requirements, and how to reproduce results.
-
-

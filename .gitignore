@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-*.egg-info/
+models/weights/
+data/coco128/
+data/coco128.zip
 .venv/
-venv/
